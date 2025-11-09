@@ -1,0 +1,172 @@
+-- Vortex Cheats - Versão "Só Entrar" (lê keys de _G.VortexSenhas)
+-- Cole no executor (Delta). Use o script de registro separado para adicionar keys em runtime.
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local Debris = game:GetService("Debris")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+-- espera LocalPlayer simples (Delta)
+local t0 = tick()
+while not LocalPlayer and tick() - t0 < 10 do
+    task.wait(0.1)
+    LocalPlayer = Players.LocalPlayer
+end
+
+local guiParent = nil
+pcall(function() guiParent = LocalPlayer and LocalPlayer:WaitForChild("PlayerGui", 3) end)
+if not guiParent or not guiParent.Parent then guiParent = game:GetService("CoreGui") end
+if not guiParent then
+    warn("VortexCheats: não encontrou PlayerGui/CoreGui")
+    return
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "VortexCheats"
+gui.ResetOnSpawn = false
+gui.Parent = guiParent
+
+local clickSound = Instance.new("Sound")
+clickSound.Name = "UIClickSound"
+clickSound.SoundId = "rbxassetid://12221967"
+clickSound.Volume = 1
+pcall(function() clickSound.Parent = gui end)
+
+local function playClick()
+    pcall(function()
+        local s = clickSound:Clone()
+        s.Parent = gui
+        s:Play()
+        Debris:AddItem(s, 2)
+    end)
+end
+
+-- default local list (será combinado com _G.VortexSenhas se existir)
+local localDefaults = { "Vortex9838" }
+
+local function avisar(txt, tempo)
+    tempo = tempo or 3
+    pcall(function()
+        local aviso = Instance.new("TextLabel")
+        aviso.Parent = gui
+        aviso.BackgroundTransparency = 0.4
+        aviso.BackgroundColor3 = Color3.fromRGB(0,0,0)
+        aviso.TextColor3 = Color3.fromRGB(255,0,0)
+        aviso.Size = UDim2.new(0.7,0,0,60)
+        aviso.Position = UDim2.new(0.15,0,0.05,0)
+        aviso.Font = Enum.Font.GothamBold
+        aviso.Text = txt
+        aviso.TextScaled = true
+        aviso.ZIndex = 50
+        task.delay(tempo, function() pcall(function() aviso:Destroy() end) end)
+    end)
+end
+
+local function trim(s)
+    if not s then return "" end
+    return s:gsub("^%s+", ""):gsub("%s+$", ""):gsub("[\r\n]+", "")
+end
+
+local function removeAllWhitespace(s)
+    if not s then return "" end
+    return s:gsub("%s+", "")
+end
+
+local function entrada_corresponde(entrada_raw, senha_valida)
+    local entrada_trimmed = trim(entrada_raw)
+    local entrada_no_whitespace = removeAllWhitespace(entrada_raw)
+    local entrada_lower = entrada_trimmed:lower()
+    local senha_lower = senha_valida:lower()
+    if entrada_trimmed == senha_valida then
+        return true, "exata_trim"
+    elseif entrada_no_whitespace == senha_valida then
+        return true, "sem_espacos"
+    elseif entrada_lower == senha_lower then
+        return true, "case_insensitive"
+    elseif entrada_no_whitespace:lower() == senha_lower then
+        return true, "sem_espacos_case_insensitive"
+    end
+    return false, nil
+end
+
+-- UI simplificada: só Entrar (sem Registrar)
+local senhaFrame = Instance.new("Frame")
+senhaFrame.BackgroundColor3 = Color3.fromRGB(0,0,0)
+senhaFrame.Size = UDim2.new(0,360,0,140)
+senhaFrame.Position = UDim2.new(0.5,-180,0.5,-80)
+senhaFrame.Parent = gui
+senhaFrame.BorderColor3 = Color3.fromRGB(255,0,0)
+senhaFrame.BorderSizePixel = 5
+senhaFrame.ZIndex = 50
+
+local senhaBox = Instance.new("TextBox")
+senhaBox.Parent = senhaFrame
+senhaBox.PlaceholderText = "Cole a senha/key aqui..."
+senhaBox.Size = UDim2.new(0.78, 0, 0.34, 0)
+senhaBox.Position = UDim2.new(0.11, 0, 0.12, 0)
+senhaBox.TextColor3 = Color3.fromRGB(255,0,0)
+senhaBox.BackgroundColor3 = Color3.fromRGB(20,20,20)
+senhaBox.Font = Enum.Font.GothamBold
+senhaBox.TextScaled = true
+senhaBox.ClearTextOnFocus = false
+
+local okBtn = Instance.new("TextButton")
+okBtn.Parent = senhaFrame
+okBtn.Text = "Entrar"
+okBtn.TextColor3 = Color3.fromRGB(255,0,0)
+okBtn.Font = Enum.Font.GothamBold
+okBtn.TextScaled = true
+okBtn.Size = UDim2.new(0.9,0,0.22,0)
+okBtn.Position = UDim2.new(0.05,0,0.7,0)
+okBtn.BackgroundColor3 = Color3.fromRGB(0,0,0)
+okBtn.BorderColor3 = Color3.fromRGB(255,0,0)
+
+local autorizado = false
+
+-- obtém lista atual de senhas válidas combinando global e local
+local function obterSenhasValidas()
+    local out = {}
+    local seen = {}
+    -- pega globais se existirem
+    if type(_G) == "table" and type(_G.VortexSenhas) == "table" then
+        for _, v in ipairs(_G.VortexSenhas) do
+            if type(v) == "string" and v ~= "" and not seen[v] then
+                table.insert(out, v)
+                seen[v] = true
+            end
+        end
+    end
+    -- adiciona defaults locais (se não duplicados)
+    for _, v in ipairs(localDefaults) do
+        if not seen[v] then
+            table.insert(out, v)
+            seen[v] = true
+        end
+    end
+    return out
+end
+
+okBtn.MouseButton1Click:Connect(function()
+    playClick()
+    local raw = senhaBox.Text or ""
+    local senhas = obterSenhasValidas()
+    for _, s in ipairs(senhas) do
+        local ok, modo = entrada_corresponde(raw, s)
+        if ok then
+            autorizado = true
+            senhaFrame.Visible = false
+            avisar("Bem-vindo ao Vortex Cheats! (modo: " .. modo .. ")", 2)
+            -- criar hub aqui (ou chamar sua função criarHub se estiver no mesmo script)
+            -- Se sua função criarHub estiver definida, chame-a: criarHub()
+            return
+        end
+    end
+    -- debug simples para identificar colagem
+    local trimmed = trim(raw)
+    local info = "Colado total: " .. tostring(#raw) .. " | trim: " .. tostring(#trimmed)
+    avisar("Senha incorreta! " .. info, 5)
+    senhaBox.Text = ""
+end)
+
+-- Se você quiser, posso colar aqui a sua função criarHub completa.
