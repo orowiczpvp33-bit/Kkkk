@@ -1,0 +1,509 @@
+-- Vortex Cheats - Versão compatível Delta (Entrar + Hub + ESP)
+-- Objetivo: máximo fallback para executores móveis (Delta). Pode ainda depender de permissões do executor.
+-- Cole no Delta e rode. Se der erro, copie a mensagem exibida no console / aviso e me mande.
+
+-- Serviços
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Debris = game:GetService("Debris")
+local Workspace = game:GetService("Workspace")
+
+-- Segurança: executa tudo protegido para não travar o executor
+local ok, mainErr = pcall(function()
+
+    -- ===== Helpers =====
+    local function safePcall(f, ...)
+        local ok, res = pcall(f, ...)
+        return ok, res
+    end
+
+    local function tryGetPlayerGui()
+        -- Ordem de tentativa:
+        -- 1) gethui() (alguns executores mobile fornecem)
+        -- 2) LocalPlayer.PlayerGui
+        -- 3) CoreGui (com proteção via syn.protect_gui se existir)
+        local guiParent = nil
+        if type(gethui) == "function" then
+            -- gethui retorna um ScreenGui parent safe on some executors
+            pcall(function() guiParent = gethui() end)
+            if guiParent then return guiParent end
+        end
+
+        local lp = Players.LocalPlayer
+        if lp then
+            pcall(function() guiParent = lp:FindFirstChild("PlayerGui") end)
+            if guiParent and guiParent.Parent then return guiParent end
+        end
+
+        -- fallback CoreGui (may be blocked on some executors)
+        local core = game:GetService("CoreGui")
+        if core then return core end
+
+        return nil
+    end
+
+    local function quickNotify(parent, text, t)
+        t = t or 3
+        pcall(function()
+            local sg = Instance.new("ScreenGui")
+            sg.Name = "Vortex_Notice"
+            sg.ResetOnSpawn = false
+            sg.Parent = parent
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(0.7,0,0,60)
+            lbl.Position = UDim2.new(0.15,0,0.05,0)
+            lbl.BackgroundTransparency = 0.45
+            lbl.BackgroundColor3 = Color3.fromRGB(0,0,0)
+            lbl.TextColor3 = Color3.fromRGB(255,100,100)
+            lbl.Font = Enum.Font.GothamBold
+            lbl.TextScaled = true
+            lbl.Text = text
+            lbl.Parent = sg
+            task.delay(t, function()
+                pcall(function() sg:Destroy() end)
+            end)
+        end)
+    end
+
+    local function playClick(parent)
+        pcall(function()
+            local s = Instance.new("Sound")
+            s.SoundId = "rbxassetid://12221967"
+            s.Volume = 1
+            s.Parent = parent
+            s:Play()
+            Debris:AddItem(s, 2)
+        end)
+    end
+
+    local function trim(s)
+        if not s then return "" end
+        return s:gsub("^%s+", ""):gsub("%s+$", ""):gsub("[\r\n]+", "")
+    end
+
+    -- ===== Prepare GUI parent =====
+    local guiParent = tryGetPlayerGui()
+    if not guiParent then
+        warn("[Vortex] Não encontrou PlayerGui/CoreGui. O Delta pode bloquear a criação de GUI.")
+        return
+    end
+
+    -- ===== Create main ScreenGui safely and protect if possible =====
+    local screenGui
+    local success, err = pcall(function()
+        screenGui = Instance.new("ScreenGui")
+        screenGui.Name = "VortexCheats"
+        screenGui.ResetOnSpawn = false
+        screenGui.Parent = guiParent
+        -- try to protect gui if executor supports (syn.protect_gui / protect_gui)
+        if type(syn) == "table" and type(syn.protect_gui) == "function" then
+            pcall(syn.protect_gui, screenGui)
+        elseif type(protect_gui) == "function" then
+            pcall(protect_gui, screenGui)
+        end
+    end)
+    if not success then
+        warn("[Vortex] Falha ao criar ScreenGui: "..tostring(err))
+        return
+    end
+
+    -- click sound container
+    local clickSound = Instance.new("Sound")
+    clickSound.Name = "UIClickSound"
+    clickSound.SoundId = "rbxassetid://12221967"
+    clickSound.Volume = 1
+    pcall(function() clickSound.Parent = screenGui end)
+
+    -- ===== Minimal safe UI (Entrar-only) =====
+    local senhasDefault = { "Vortex9838" }
+    _G.VortexSenhas = _G.VortexSenhas or {}
+
+    local function avisar(text)
+        quickNotify(screenGui, text, 4)
+    end
+
+    -- Frame
+    local frame = Instance.new("Frame")
+    frame.Name = "Vortex_AuthFrame"
+    frame.Size = UDim2.new(0,360,0,150)
+    frame.Position = UDim2.new(0.5,-180,0.5,-80)
+    frame.BackgroundColor3 = Color3.fromRGB(28,28,28)
+    frame.BorderColor3 = Color3.fromRGB(200,30,30)
+    frame.BorderSizePixel = 3
+    frame.Parent = screenGui
+
+    local title = Instance.new("TextLabel", frame)
+    title.Size = UDim2.new(1,0,0,28)
+    title.Position = UDim2.new(0,0,0,6)
+    title.BackgroundTransparency = 1
+    title.Text = "Vortex - Cole a key"
+    title.Font = Enum.Font.GothamBold
+    title.TextColor3 = Color3.fromRGB(255,120,120)
+    title.TextScaled = false
+
+    local txtBox = Instance.new("TextBox", frame)
+    txtBox.PlaceholderText = "Cole a senha/key aqui..."
+    txtBox.Size = UDim2.new(0.78,0,0.36,0)
+    txtBox.Position = UDim2.new(0.11,0,0.22,0)
+    txtBox.BackgroundColor3 = Color3.fromRGB(60,60,60)
+    txtBox.TextColor3 = Color3.fromRGB(255,255,255)
+    txtBox.ClearTextOnFocus = false
+    txtBox.Font = Enum.Font.Gotham
+    txtBox.TextScaled = true
+
+    local info = Instance.new("TextLabel", frame)
+    info.Size = UDim2.new(0.9,0,0,18)
+    info.Position = UDim2.new(0.05,0,0.54,0)
+    info.BackgroundTransparency = 1
+    info.TextColor3 = Color3.fromRGB(200,200,200)
+    info.Font = Enum.Font.Gotham
+    info.TextSize = 14
+
+    txtBox:GetPropertyChangedSignal("Text"):Connect(function()
+        local raw = txtBox.Text or ""
+        if raw == "" then info.Text = "" else info.Text = "Detectado: "..tostring(#raw).." chars" end
+    end)
+
+    local enterBtn = Instance.new("TextButton", frame)
+    enterBtn.Text = "Entrar"
+    enterBtn.Size = UDim2.new(0.48,0,0.22,0)
+    enterBtn.Position = UDim2.new(0.5,-5,0.72,0)
+    enterBtn.BackgroundColor3 = Color3.fromRGB(180,20,20)
+    enterBtn.TextColor3 = Color3.fromRGB(255,255,255)
+    enterBtn.Font = Enum.Font.GothamBold
+    enterBtn.TextScaled = true
+
+    local regBtn = Instance.new("TextButton", frame)
+    regBtn.Text = "Registrar"
+    regBtn.Size = UDim2.new(0.34,0,0.22,0)
+    regBtn.Position = UDim2.new(0.06,0,0.72,0)
+    regBtn.BackgroundColor3 = Color3.fromRGB(100,100,100)
+    regBtn.TextColor3 = Color3.fromRGB(255,255,255)
+    regBtn.Font = Enum.Font.GothamBold
+    regBtn.TextScaled = true
+
+    -- authorization logic
+    local function obterSenhas()
+        local out = {}
+        local seen = {}
+        if type(_G) == "table" and type(_G.VortexSenhas) == "table" then
+            for _, v in ipairs(_G.VortexSenhas) do
+                if type(v) == "string" and v ~= "" and not seen[v] then
+                    table.insert(out, v); seen[v] = true
+                end
+            end
+        end
+        for _, v in ipairs(senhasDefault) do
+            if not seen[v] then table.insert(out, v); seen[v] = true end
+        end
+        return out
+    end
+
+    local autorizado = false
+
+    enterBtn.MouseButton1Click:Connect(function()
+        pcall(function() playClick(screenGui) end)
+        local raw = txtBox.Text or ""
+        for _, s in ipairs(obterSenhas()) do
+            local r = (trim(raw) == s) or (trim(raw):lower() == s:lower()) or ((raw:gsub("%s+","")) == s)
+            if r then
+                autorizado = true
+                frame.Visible = false
+                avisar("Bem-vindo! Abrindo hub...")
+                break
+            end
+        end
+        if not autorizado then
+            avisar("Senha incorreta! Colado: "..tostring(#raw))
+            txtBox.Text = ""
+        end
+    end)
+
+    regBtn.MouseButton1Click:Connect(function()
+        pcall(function() playClick(screenGui) end)
+        local raw = trim(txtBox.Text or "")
+        if raw == "" then
+            avisar("Cole a key antes.")
+            return
+        end
+        _G.VortexSenhas = _G.VortexSenhas or {}
+        for _, v in ipairs(_G.VortexSenhas) do if v == raw then avisar("Key já registrada."); return end end
+        table.insert(_G.VortexSenhas, raw)
+        autorizado = true
+        frame.Visible = false
+        avisar("Key registrada! Abrindo hub...")
+    end)
+
+    -- ===== make draggable helper =====
+    local function makeDraggable(guiObject)
+        if not guiObject then return end
+        guiObject.Active = true
+        local dragging, dragInput, dragStart, startPos = false, nil, nil, nil
+        guiObject.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                dragStart = input.Position
+                startPos = guiObject.Position
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                        dragInput = nil
+                    end
+                end)
+            end
+        end)
+        guiObject.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                dragInput = input
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging and input == dragInput and dragStart and startPos then
+                local delta = input.Position - dragStart
+                pcall(function()
+                    guiObject.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+                end)
+            end
+        end)
+    end
+
+    -- ===== ESP (BOX & NAME; drawing optional) =====
+    local hasDrawing = (type(Drawing) == "table")
+    local espEnabled = { box = false, name = false, line = false, fruits = false, basetimer = false, skeleton = false }
+    local espBoxes = {}   -- player -> BoxHandleAdornment
+    local espNames = {}   -- player -> BillboardGui
+    local espDrawings = {} -- player -> drawing objects
+    local espFruits = {}  -- instance -> BillboardGui
+    local espBaseGui = nil
+
+    local function createBox(plr)
+        if not plr or espBoxes[plr] then return end
+        pcall(function()
+            local b = Instance.new("BoxHandleAdornment")
+            b.Name = "Vortex_ESPBox_"..plr.Name
+            b.AlwaysOnTop = true
+            b.ZIndex = 10
+            b.Transparency = 0.45
+            b.Color3 = Color3.fromRGB(255,0,0)
+            b.Adornee = nil
+            b.Size = Vector3.new(2.5, 5, 1)
+            b.Parent = Workspace
+            espBoxes[plr] = b
+        end)
+    end
+
+    local function destroyBox(plr)
+        if espBoxes[plr] then
+            pcall(function() espBoxes[plr]:Destroy() end)
+            espBoxes[plr] = nil
+        end
+    end
+
+    local function createName(plr)
+        if espNames[plr] then return end
+        pcall(function()
+            local bill = Instance.new("BillboardGui")
+            bill.Name = "Vortex_Name_"..plr.Name
+            bill.Size = UDim2.new(0,140,0,36)
+            bill.StudsOffset = Vector3.new(0,2.5,0)
+            bill.AlwaysOnTop = true
+            local txt = Instance.new("TextLabel")
+            txt.Size = UDim2.new(1,0,1,0)
+            txt.BackgroundTransparency = 1
+            txt.TextColor3 = Color3.fromRGB(255,200,0)
+            txt.Font = Enum.Font.GothamBold
+            txt.TextScaled = true
+            txt.Text = plr.Name
+            txt.Parent = bill
+            espNames[plr] = bill
+        end)
+    end
+
+    local function destroyName(plr)
+        if espNames[plr] then
+            pcall(function() espNames[plr]:Destroy() end)
+            espNames[plr] = nil
+        end
+    end
+
+    local function ensureDrawing(plr)
+        if not hasDrawing then return end
+        if espDrawings[plr] then return end
+        pcall(function()
+            local t = { line = Drawing.new("Line"), bones = {} }
+            t.line.Color = Color3.new(1,0.4,0.2)
+            t.line.Thickness = 1.5
+            t.line.Visible = false
+            espDrawings[plr] = t
+        end)
+    end
+
+    local function removeDrawing(plr)
+        if espDrawings[plr] then
+            pcall(function()
+                if espDrawings[plr].line then espDrawings[plr].line:Remove() end
+                for _, d in ipairs(espDrawings[plr].bones or {}) do pcall(function() d:Remove() end) end
+            end)
+            espDrawings[plr] = nil
+        end
+    end
+
+    local function scanFruits()
+        for _, inst in ipairs(Workspace:GetDescendants()) do
+            if not inst:IsA("BasePart") then continue end
+            local n = inst.Name:lower()
+            if n:match("fruit") or n:match("fruta") then
+                if not espFruits[inst] then
+                    pcall(function()
+                        local bill = Instance.new("BillboardGui")
+                        bill.Size = UDim2.new(0,120,0,30)
+                        bill.StudsOffset = Vector3.new(0,1.5,0)
+                        bill.AlwaysOnTop = true
+                        local txt = Instance.new("TextLabel")
+                        txt.Size = UDim2.new(1,0,1,0)
+                        txt.BackgroundTransparency = 1
+                        txt.TextColor3 = Color3.fromRGB(0,255,128)
+                        txt.Font = Enum.Font.Gotham
+                        txt.TextScaled = true
+                        txt.Text = inst.Name
+                        txt.Parent = bill
+                        pcall(function() bill.Parent = inst end)
+                        espFruits[inst] = bill
+                        inst.AncestryChanged:Connect(function()
+                            if not inst:IsDescendantOf(game) then
+                                if espFruits[inst] then pcall(function() espFruits[inst]:Destroy() end) end
+                                espFruits[inst] = nil
+                            end
+                        end)
+                    end)
+                end
+            end
+        end
+    end
+
+    local function updateBaseTimer()
+        if not esp.enabled.basetimer then
+            if espBaseGui then pcall(function() espBaseGui:Destroy() end) espBaseGui = nil end
+            return
+        end
+        local basePart
+        for _, v in ipairs(Workspace:GetDescendants()) do
+            if v:IsA("BasePart") then
+                local name = v.Name:lower()
+                if name:match("base") or name:match("spawn") then basePart = v; break end
+            end
+        end
+        if not basePart then return end
+        if not espBaseGui then
+            pcall(function()
+                local bill = Instance.new("BillboardGui")
+                bill.Size = UDim2.new(0,200,0,40)
+                bill.StudsOffset = Vector3.new(0,3,0)
+                bill.AlwaysOnTop = true
+                local txt = Instance.new("TextLabel")
+                txt.Size = UDim2.new(1,0,1,0)
+                txt.BackgroundTransparency = 1
+                txt.Font = Enum.Font.GothamBold
+                txt.TextScaled = true
+                txt.TextColor3 = Color3.fromRGB(255,255,255)
+                txt.Text = "Base: --"
+                txt.Parent = bill
+                espBaseGui = bill
+                pcall(function() bill.Parent = basePart end)
+            end)
+        end
+        local tVal = nil
+        local child = basePart:FindFirstChild("Timer") or basePart:FindFirstChildWhichIsA("NumberValue")
+        if child and (child:IsA("NumberValue") or child:IsA("IntValue")) then tVal = child.Value
+        elseif basePart:GetAttribute("Timer") then tVal = basePart:GetAttribute("Timer") end
+        if espBaseGui then
+            local lbl = espBaseGui:FindFirstChildOfClass("TextLabel")
+            if lbl then
+                if tVal then lbl.Text = "Base Timer: "..tostring(tVal) else lbl.Text = "Base" end
+            end
+        end
+    end
+
+    -- update loop (Heartbeat)
+    RunService.Heartbeat:Connect(function()
+        -- fruits
+        if esp.enabled.fruits then
+            pcall(scanFruits)
+        else
+            for inst, g in pairs(espFruits) do pcall(function() g:Destroy() end); espFruits[inst] = nil end
+        end
+
+        -- basetimer
+        if esp.enabled.basetimer then pcall(updateBaseTimer) end
+
+        -- players
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr == Players.LocalPlayer then
+                destroyBox(plr); destroyName(plr); removeDrawing(plr)
+            else
+                -- BOX
+                if esp.enabled.box then
+                    createBox(plr)
+                    local root = findHumanoidRoot(plr)
+                    local box = espBoxes[plr]
+                    if box and root then
+                        box.Adornee = root
+                        box.Enabled = true
+                        -- adjust size by humanoid when possible (approx)
+                        local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+                        local height = 5
+                        if hum and hum.HipHeight then height = math.clamp((hum.HipHeight or 2)*2 + 2, 3, 10) end
+                        pcall(function() box.Size = Vector3.new(2.5, height, 1) end)
+                    elseif box then
+                        box.Adornee = nil; box.Enabled = false
+                    end
+                else
+                    destroyBox(plr)
+                end
+
+                -- NAME
+                if esp.enabled.name then
+                    createName(plr)
+                    local bill = espNames[plr]
+                    local root = findHumanoidRoot(plr)
+                    if bill and root then
+                        pcall(function() bill.Parent = root end)
+                        bill.Enabled = true
+                        local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+                        local hp = hum and math.floor(hum.Health) or ""
+                        local txt = bill:FindFirstChildOfClass("TextLabel")
+                        if txt then txt.Text = plr.Name .. (hp ~= "" and (" | " .. tostring(hp)) or "") end
+                    end
+                else
+                    destroyName(plr)
+                end
+
+                -- DRAWING (line + skeleton)
+                if (esp.enabled.line or esp.enabled.skeleton) and hasDrawing then
+                    ensureDrawing(plr)
+                    local t = espDrawings[plr]
+                    local root = findHumanoidRoot(plr)
+                    if t and t.line and root then
+                        local cam = Workspace.CurrentCamera
+                        local pos, onScreen = cam:WorldToViewportPoint(root.Position)
+                        if onScreen then
+                            local from = Vector2.new(cam.ViewportSize.X/2, cam.ViewportSize.Y)
+                            t.line.From = from
+                            t.line.To = Vector2.new(pos.X, pos.Y)
+                            t.line.Visible = esp.enabled.line
+                        else
+                            t.line.Visible = false
+                        end
+                    end
+
+                    if esp.enabled.skeleton and t then
+                        -- remove previous bones
+                        for _,d in ipairs(t.bones or {}) do pcall(function() d:Remove() end) end
+                        t.bones = {}
+                        local char = plr.Character
+                        if char then
+                            local parts = {
+                                Head = char:FindFirstChild("Head"),
+                                Torso = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") or char:FindFirstChild("HumanoidRootPart"),
+                                LArm = char:FindFirstChild("LeftUpperArm") or char:FindFirstChild("L
